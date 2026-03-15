@@ -1,0 +1,12 @@
+{
+  "subtitle_crop": {
+    "x": 2,
+    "y": 438,
+    "width": 1272,
+    "height": 278
+  },
+  "video_quality": 720,
+  "frame_rate": 1,
+  "similarity_threshold": 0.9,
+  "confidence_threshold": 0.8
+}

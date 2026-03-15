@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HI3 Story Archive - Dashboard</title>
+    <style>
+        body { font-family: monospace; margin: 20px; background: #1a1a1a; color: #eee; }
+        h1 { color: #4af; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #444; padding: 8px; text-align: left; }
+        th { background: #333; }
+        tr:hover { background: #2a2a2a; }
+        a { color: #4af; }
+        .status-complete { color: #4f4; }
+        .status-error { color: #f44; }
+        .status-pending { color: #888; }
+        .status-in_progress { color: #ff4; }
+        .filter-bar { margin-bottom: 15px; }
+        .filter-bar button { margin-right: 5px; padding: 5px 10px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>HI3 Story Archive - Dashboard</h1>
+    
+    <div class="filter-bar">
+        <button onclick="filterVideos('all')">All</button>
+        <button onclick="filterVideos('input')">Stage 1</button>
+        <button onclick="filterVideos('acquire')">Stage 2</button>
+        <button onclick="filterVideos('extract')">Stage 3</button>
+        <button onclick="filterVideos('review')">Stage 4</button>
+        <button onclick="filterVideos('complete')">Complete</button>
+    </div>
+    
+    <table id="videos-table">
+        <thead>
+            <tr>
+                <th>Video ID</th>
+                <th>Chapter</th>
+                <th>Status</th>
+                <th>Acquire</th>
+                <th>Extract</th>
+                <th>Review</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for video in videos %}
+            <tr data-status="{{ video.status }}">
+                <td>{{ video.video_id }}</td>
+                <td>{{ video.chapter }}</td>
+                <td class="status-{{ video.status }}">{{ video.status }}</td>
+                <td class="status-{{ video.stages.acquire.status }}">
+                    {{ video.stages.acquire.status }}
+                    {% if video.stages.acquire.frames_total %}
+                    ({{ video.stages.acquire.frames_total }} frames)
+                    {% endif %}
+                </td>
+                <td class="status-{{ video.stages.extract.status }}">
+                    {{ video.stages.extract.status }}
+                    {% if video.stages.extract.entries_extracted %}
+                    ({{ video.stages.extract.entries_extracted }} entries, {{ video.stages.extract.low_confidence_count }} low)
+                    {% endif %}
+                </td>
+                <td class="status-{{ video.stages.review.status }}">
+                    {{ video.stages.review.status }}
+                    {% if video.stages.review.total_entries %}
+                    ({{ video.stages.review.reviewed }}/{{ video.stages.review.total_entries }})
+                    {% endif %}
+                </td>
+                <td>
+                    {% if video.stages.extract.status == 'complete' %}
+                    <a href="/video/{{ video.video_id }}">Review</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <script>
+        function filterVideos(status) {
+            const rows = document.querySelectorAll('#videos-table tbody tr');
+            rows.forEach(row => {
+                if (status === 'all' || row.dataset.status === status) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+    </script>
+</body>
+</html>

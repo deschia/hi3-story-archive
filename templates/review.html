@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Review - {{ video_id }}</title>
+    <style>
+        body { font-family: monospace; margin: 20px; background: #1a1a1a; color: #eee; }
+        h1, h2 { color: #4af; }
+        a { color: #4af; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .filters { margin-bottom: 15px; }
+        .filters button { margin-right: 5px; padding: 5px 10px; cursor: pointer; }
+        .filters button.active { background: #4af; color: #000; }
+        .entry { border: 1px solid #444; padding: 15px; margin-bottom: 15px; display: flex; gap: 20px; }
+        .entry.low-confidence { border-color: #f84; }
+        .entry.reviewed { border-color: #4f4; opacity: 0.7; }
+        .entry.deleted { border-color: #f44; opacity: 0.5; background: #2a1a1a; }
+        .entry-frame { flex: 0 0 400px; }
+        .entry-frame img { max-width: 100%; border: 1px solid #333; }
+        .entry-content { flex: 1; }
+        .entry-meta { color: #888; font-size: 12px; margin-bottom: 10px; }
+        .field { margin-bottom: 10px; }
+        .field label { display: block; color: #888; margin-bottom: 3px; }
+        .field input, .field textarea { width: 100%; padding: 8px; background: #2a2a2a; border: 1px solid #444; color: #eee; font-family: monospace; }
+        .field textarea { min-height: 80px; resize: vertical; }
+        .actions { margin-top: 10px; }
+        .actions button { margin-right: 5px; padding: 8px 15px; cursor: pointer; }
+        .btn-approve { background: #4f4; color: #000; border: none; }
+        .btn-save { background: #4af; color: #000; border: none; }
+        .btn-delete { background: #f44; color: #fff; border: none; }
+        .btn-restore { background: #4f4; color: #000; border: none; }
+        .btn-skip { background: #666; color: #fff; border: none; }
+        .keyboard-hint { color: #666; font-size: 11px; margin-top: 5px; }
+        .stats { background: #2a2a2a; padding: 10px; margin-bottom: 15px; }
+        .hidden { display: none !important; }
+        .loading { text-align: center; padding: 20px; color: #888; }
+        .load-sentinel { height: 1px; }
+        .controls { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        .controls label { color: #888; }
+        .controls input[type="range"] { width: 150px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>{{ metadata.get('chapter', video_id) }}</h1>
+            <p><a href="/">← Back to Dashboard</a></p>
+        </div>
+        <div class="stats">
+            <span id="stats-reviewed">0</span> / <span id="stats-total">{{ total_entries }}</span> reviewed
+            | Low confidence: <span id="stats-low">0</span>
+            | Showing: <span id="stats-loaded">0</span>
+        </div>
+    </div>
+    
+    <div class="filters">
+        <button onclick="setFilter('all')" class="active" data-filter="all">All</button>
+        <button onclick="setFilter('pending')" data-filter="pending">Pending</button>
+        <button onclick="setFilter('low')" data-filter="low">Low Confidence</button>
+        <button onclick="setFilter('reviewed')" data-filter="reviewed">Reviewed</button>
+        <button onclick="setFilter('deleted')" data-filter="deleted">Deleted</button>
+    </div>
+    
+    <div class="controls">
+        <label>Frame size:</label>
+        <input type="range" id="frame-size" min="20" max="50" value="30" oninput="setFrameSize(this.value)">
+        <span id="frame-size-label">30%</span>
+        
+        <label style="margin-left: 20px;">Min confidence:</label>
+        <input type="range" id="confidence-filter" min="0" max="100" value="0" oninput="setConfidenceFilter(this.value)">
+        <span id="confidence-label">0%</span>
+    </div>
+    
+    <div id="entries"></div>
+    <div id="loading" class="loading hidden">Loading more entries...</div>
+    <div id="load-sentinel" class="load-sentinel"></div>
+    
+    <script>
+        const videoId = "{{ video_id }}";
+        const BATCH_SIZE = 20;
+        let currentFilter = "all";
+        let currentOffset = 0;
+        let isLoading = false;
+        let hasMore = true;
+        let totalFiltered = 0;
+        let reviewedCount = 0;
+        let lowCount = 0;
+        let frameSize = 30;
+        let minConfidence = 0;
+
+        function setFrameSize(val) {
+            frameSize = parseInt(val);
+            document.getElementById('frame-size-label').textContent = val + '%';
+            document.querySelectorAll('.entry-frame').forEach(el => {
+                el.style.flex = `0 0 ${val}%`;
+            });
+        }
+
+        function setConfidenceFilter(val) {
+            minConfidence = parseInt(val) / 100;
+            document.getElementById('confidence-label').textContent = val + '%';
+            loadEntries(true);
+        }
+
+        function createEntryElement(entry) {
+            const div = document.createElement('div');
+            const isLow = entry.confidence < 0.8;
+            const isReviewed = entry.reviewed === true;
+            const isDeleted = entry.deleted === true;
+            
+            div.className = `entry${isLow ? ' low-confidence' : ''}${isReviewed ? ' reviewed' : ''}${isDeleted ? ' deleted' : ''}`;
+            div.dataset.index = entry.index;
+            div.dataset.confidence = entry.confidence;
+            div.dataset.reviewed = isReviewed;
+            div.dataset.deleted = isDeleted;
+            
+            div.innerHTML = `
+                <div class="entry-frame">
+                    <img src="/frame/${videoId}/${entry.frame}" alt="Frame ${entry.frame}" loading="lazy">
+                </div>
+                <div class="entry-content">
+                    <div class="entry-meta">
+                        Frame: ${entry.frame} | Timestamp: ${entry.timestamp}s | Confidence: ${entry.confidence.toFixed(2)}
+                        ${entry.corrected ? ' | <span style="color:#f84">Corrected</span>' : ''}
+                    </div>
+                    <div class="field">
+                        <label>Speaker</label>
+                        <input type="text" class="speaker-input" value="${entry.speaker || ''}">
+                    </div>
+                    <div class="field">
+                        <label>Dialogue</label>
+                        <textarea class="dialogue-input">${entry.dialogue || ''}</textarea>
+                    </div>
+                    <div class="actions">
+                        ${isDeleted ? `
+                            <button class="btn-restore" onclick="restoreEntry(${entry.index})">Restore</button>
+                        ` : `
+                            <button class="btn-approve" onclick="approveEntry(${entry.index})">Approve (A)</button>
+                            <button class="btn-save" onclick="saveEntry(${entry.index})">Save (S)</button>
+                            <button class="btn-delete" onclick="deleteEntry(${entry.index})">Delete (D)</button>
+                        `}
+                    </div>
+                    <div class="keyboard-hint">Use Tab to navigate, Enter to save</div>
+                </div>
+            `;
+            
+            return div;
+        }
+
+        async function loadEntries(reset = false) {
+            if (isLoading || (!hasMore && !reset)) return;
+            
+            if (reset) {
+                currentOffset = 0;
+                hasMore = true;
+                document.getElementById('entries').innerHTML = '';
+            }
+            
+            isLoading = true;
+            document.getElementById('loading').classList.remove('hidden');
+            
+            try {
+                const response = await fetch(`/api/video/${videoId}/entries?offset=${currentOffset}&limit=${BATCH_SIZE}&filter=${currentFilter}&min_confidence=${minConfidence}`);
+                const data = await response.json();
+                
+                const container = document.getElementById('entries');
+                data.entries.forEach(entry => {
+                    const el = createEntryElement(entry);
+                    el.querySelector('.entry-frame').style.flex = `0 0 ${frameSize}%`;
+                    container.appendChild(el);
+                });
+                
+                currentOffset += data.entries.length;
+                hasMore = data.has_more;
+                totalFiltered = data.total;
+                
+                updateStats();
+            } catch (error) {
+                console.error('Error loading entries:', error);
+            } finally {
+                isLoading = false;
+                document.getElementById('loading').classList.add('hidden');
+            }
+        }
+
+        function updateStats() {
+            const entries = document.querySelectorAll('.entry');
+            let reviewed = 0;
+            let low = 0;
+            
+            entries.forEach(e => {
+                if (e.dataset.reviewed === 'true') reviewed++;
+                if (parseFloat(e.dataset.confidence) < 0.8) low++;
+            });
+            
+            document.getElementById('stats-total').textContent = totalFiltered;
+            document.getElementById('stats-reviewed').textContent = reviewed;
+            document.getElementById('stats-low').textContent = low;
+            document.getElementById('stats-loaded').textContent = entries.length;
+        }
+        
+        function setFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filters button').forEach(b => {
+                b.classList.toggle('active', b.dataset.filter === filter);
+            });
+            loadEntries(true);
+        }
+        
+        async function approveEntry(index) {
+            const entry = document.querySelector(`.entry[data-index="${index}"]`);
+            const response = await fetch(`/video/${videoId}/approve/${index}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+            
+            if (response.ok) {
+                entry.classList.add('reviewed');
+                entry.dataset.reviewed = 'true';
+                updateStats();
+                focusNext(index);
+            }
+        }
+        
+        async function saveEntry(index) {
+            const entry = document.querySelector(`.entry[data-index="${index}"]`);
+            const speaker = entry.querySelector('.speaker-input').value;
+            const dialogue = entry.querySelector('.dialogue-input').value;
+            
+            const response = await fetch(`/video/${videoId}/entry/${index}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({speaker, dialogue})
+            });
+            
+            if (response.ok) {
+                entry.classList.add('reviewed');
+                entry.dataset.reviewed = 'true';
+                updateStats();
+                focusNext(index);
+            }
+        }
+        
+        async function deleteEntry(index) {
+            const entry = document.querySelector(`.entry[data-index="${index}"]`);
+            const response = await fetch(`/video/${videoId}/delete/${index}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+            
+            if (response.ok) {
+                entry.remove();
+                updateStats();
+            }
+        }
+        
+        async function restoreEntry(index) {
+            const entry = document.querySelector(`.entry[data-index="${index}"]`);
+            const response = await fetch(`/video/${videoId}/restore/${index}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+            
+            if (response.ok) {
+                entry.remove();
+                updateStats();
+            }
+        }
+        
+        function focusNext(currentIndex) {
+            const entries = Array.from(document.querySelectorAll('.entry'));
+            const currentEntry = document.querySelector(`.entry[data-index="${currentIndex}"]`);
+            const currentPos = entries.indexOf(currentEntry);
+            
+            if (currentPos < entries.length - 1) {
+                entries[currentPos + 1].querySelector('.speaker-input').focus();
+                entries[currentPos + 1].scrollIntoView({behavior: 'smooth', block: 'center'});
+            }
+        }
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                const entry = e.target.closest('.entry');
+                const index = parseInt(entry.dataset.index);
+                
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    saveEntry(index);
+                }
+            }
+            
+            if (e.key === 'a' && !e.target.matches('input, textarea')) {
+                const visible = document.querySelectorAll('.entry');
+                if (visible.length > 0) {
+                    const index = parseInt(visible[0].dataset.index);
+                    approveEntry(index);
+                }
+            }
+        });
+
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting && hasMore && !isLoading) {
+                loadEntries();
+            }
+        }, { rootMargin: '200px' });
+        
+        observer.observe(document.getElementById('load-sentinel'));
+        
+        loadEntries();
+    </script>
+</body>
+</html>

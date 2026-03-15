@@ -1,0 +1,8 @@
+.venv/
+.idea/
+frames/
+metadata/
+progress/
+raw/
+reviewed/
+sample/
