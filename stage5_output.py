@@ -53,6 +53,8 @@ def run_stage5():
             })
         
         for entry in reviewed["entries"]:
+            if entry.get("deleted"):
+                continue
             chapters[chapter]["dialogues"].append({
                 "speaker": entry.get("speaker"),
                 "text": entry.get("dialogue", ""),
