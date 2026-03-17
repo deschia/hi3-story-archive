@@ -1,0 +1,18 @@
+# HI3 Custom Dictionary
+# Add game-specific terms (character names, vocabulary) one per line
+# Lines starting with # are comments
+# This file is auto-updated by: python main.py build-dictionary
+
+soukai
+himeko
+kiana
+fu hua
+hua
+mei
+senpai
+sensei
+otto
+ai
+chan
+honkai
+hyperion

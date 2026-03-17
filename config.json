@@ -8,5 +8,6 @@
   "video_quality": 720,
   "frame_rate": 1,
   "similarity_threshold": 0.9,
-  "confidence_threshold": 0.8
+  "confidence_threshold": 0.8,
+  "spellcheck_confidence_threshold": 0.85
 }

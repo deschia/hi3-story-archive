@@ -26,6 +26,7 @@
         <button onclick="filterVideos('input')">Stage 1</button>
         <button onclick="filterVideos('acquire')">Stage 2</button>
         <button onclick="filterVideos('extract')">Stage 3</button>
+        <button onclick="filterVideos('spellcheck')">Stage 3.5</button>
         <button onclick="filterVideos('review')">Stage 4</button>
         <button onclick="filterVideos('complete')">Complete</button>
     </div>
@@ -38,6 +39,7 @@
                 <th>Status</th>
                 <th>Acquire</th>
                 <th>Extract</th>
+                <th>Spellcheck</th>
                 <th>Review</th>
                 <th>Actions</th>
             </tr>
@@ -60,6 +62,12 @@
                     ({{ video.stages.extract.entries_extracted }} entries, {{ video.stages.extract.low_confidence_count }} low)
                     {% endif %}
                 </td>
+                <td class="status-{{ video.stages.spellcheck.status if video.stages.spellcheck else 'pending' }}">
+                    {{ video.stages.spellcheck.status if video.stages.spellcheck else 'pending' }}
+                    {% if video.spellcheck_stats.auto_corrected_count %}
+                    ({{ video.spellcheck_stats.auto_corrected_count }} auto, {{ video.spellcheck_stats.flagged_count }} flagged)
+                    {% endif %}
+                </td>
                 <td class="status-{{ video.stages.review.status }}">
                     {{ video.stages.review.status }}
                     {% if video.stages.review.total_entries %}
@@ -67,8 +75,10 @@
                     {% endif %}
                 </td>
                 <td>
-                    {% if video.stages.extract.status == 'complete' %}
+                    {% if video.stages.spellcheck and video.stages.spellcheck.status == 'complete' %}
                     <a href="/video/{{ video.video_id }}">Review</a>
+                    {% elif video.stages.extract.status == 'complete' %}
+                    <a href="/video/{{ video.video_id }}">Review (raw)</a>
                     {% endif %}
                 </td>
             </tr>

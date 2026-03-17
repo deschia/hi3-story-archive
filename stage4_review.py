@@ -4,7 +4,7 @@ from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for
 from utils import (
     load_json, save_json, load_progress, update_progress,
-    logger, RAW_DIR, REVIEWED_DIR, FRAMES_DIR, PROGRESS_DIR, METADATA_DIR, BASE_DIR
+    logger, RAW_DIR, SPELLCHECKED_DIR, REVIEWED_DIR, FRAMES_DIR, PROGRESS_DIR, METADATA_DIR, BASE_DIR
 )
 
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
@@ -16,18 +16,21 @@ def get_all_videos():
         progress = load_json(progress_file)
         metadata_file = METADATA_DIR / f"{progress['video_id']}.json"
         metadata = load_json(metadata_file) if metadata_file.exists() else {}
+        spellcheck_stats = progress["stages"].get("spellcheck", {})
         videos.append({
             "video_id": progress["video_id"],
             "title": metadata.get("title", "Unknown"),
             "chapter": metadata.get("chapter", "Unknown"),
             "status": progress["status"],
-            "stages": progress["stages"]
+            "stages": progress["stages"],
+            "spellcheck_stats": spellcheck_stats
         })
     return videos
 
 
 def init_reviewed(video_id):
     reviewed_path = REVIEWED_DIR / f"{video_id}.json"
+    spellchecked_path = SPELLCHECKED_DIR / f"{video_id}.json"
     raw_path = RAW_DIR / f"{video_id}.json"
     
     if reviewed_path.exists():
@@ -35,16 +38,17 @@ def init_reviewed(video_id):
         if reviewed.get("entries"):
             return reviewed
     
-    if not raw_path.exists():
+    source_path = spellchecked_path if spellchecked_path.exists() else raw_path
+    if not source_path.exists():
         return None
     
-    raw = load_json(raw_path)
-    for entry in raw["entries"]:
+    source_data = load_json(source_path)
+    for entry in source_data["entries"]:
         entry["reviewed"] = False
         entry["corrected"] = False
     
-    save_json(reviewed_path, raw)
-    return raw
+    save_json(reviewed_path, source_data)
+    return source_data
 
 
 def update_review_progress(video_id):
@@ -127,6 +131,10 @@ def get_entries(video_id):
         indexed_entries = [e for e in indexed_entries if e.get("reviewed", False) and not e.get("deleted", False)]
     elif filter_type == "deleted":
         indexed_entries = [e for e in indexed_entries if e.get("deleted", False)]
+    elif filter_type == "auto_corrected":
+        indexed_entries = [e for e in indexed_entries if e.get("auto_corrected", False) and not e.get("deleted", False)]
+    elif filter_type == "flagged":
+        indexed_entries = [e for e in indexed_entries if e.get("flagged_issues") and not e.get("deleted", False)]
     elif filter_type == "all":
         indexed_entries = [e for e in indexed_entries if not e.get("deleted", False)]
     
@@ -168,16 +176,13 @@ def flush_actions(video_id):
         entry = reviewed["entries"][index]
         
         if action_type == "approve":
-            entry["reviewed"] = True
-            applied += 1
-        elif action_type == "save":
-            original_speaker = entry.get("speaker")
-            original_dialogue = entry.get("dialogue")
             new_speaker = action.get("speaker")
             new_dialogue = action.get("dialogue")
-            corrected = (original_speaker != new_speaker) or (original_dialogue != new_dialogue)
-            entry["speaker"] = new_speaker
-            entry["dialogue"] = new_dialogue
+            corrected = action.get("corrected", False)
+            if new_speaker is not None:
+                entry["speaker"] = new_speaker
+            if new_dialogue is not None:
+                entry["dialogue"] = new_dialogue
             entry["reviewed"] = True
             entry["corrected"] = corrected or entry.get("corrected", False)
             applied += 1

@@ -9,10 +9,12 @@ BASE_DIR = Path(__file__).parent
 METADATA_DIR = BASE_DIR / "metadata"
 FRAMES_DIR = BASE_DIR / "frames"
 RAW_DIR = BASE_DIR / "raw"
+SPELLCHECKED_DIR = BASE_DIR / "spellchecked"
 REVIEWED_DIR = BASE_DIR / "reviewed"
 ARCHIVE_DIR = BASE_DIR / "archive"
 PROGRESS_DIR = BASE_DIR / "progress"
 CONFIG_FILE = BASE_DIR / "config.json"
+DICTIONARY_FILE = BASE_DIR / "hi3_dictionary.txt"
 ERRORS_LOG = BASE_DIR / "errors.log"
 
 logging.basicConfig(
@@ -76,6 +78,13 @@ def init_progress(video_id, url):
                 "low_confidence_count": 0,
                 "errors": []
             },
+            "spellcheck": {
+                "status": "pending",
+                "entries_processed": 0,
+                "auto_corrected_count": 0,
+                "flagged_count": 0,
+                "errors": []
+            },
             "review": {
                 "status": "pending",
                 "total_entries": 0,
@@ -102,9 +111,11 @@ def load_progress(video_id):
 def update_progress(video_id, stage, data):
     progress = load_progress(video_id)
     if progress:
+        if stage not in progress["stages"]:
+            progress["stages"][stage] = {}
         progress["stages"][stage].update(data)
         if "status" in data:
-            stage_order = ["input", "acquire", "extract", "review", "output"]
+            stage_order = ["input", "acquire", "extract", "spellcheck", "review", "output"]
             if data["status"] == "complete":
                 current_idx = stage_order.index(stage)
                 if current_idx < len(stage_order) - 1:
