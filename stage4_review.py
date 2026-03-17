@@ -142,95 +142,57 @@ def get_entries(video_id):
     })
 
 
-@app.route("/video/<video_id>/entry/<int:index>", methods=["POST"])
-def update_entry(video_id, index):
+@app.route("/video/<video_id>/flush", methods=["POST"])
+def flush_actions(video_id):
     data = request.json
+    actions = data.get("actions", [])
+    
+    if not actions:
+        return jsonify({"success": True, "applied": 0})
+    
     reviewed_path = REVIEWED_DIR / f"{video_id}.json"
     
     if not reviewed_path.exists():
         return jsonify({"success": False, "error": "File not found"}), 404
     
     reviewed = load_json(reviewed_path)
+    applied = 0
     
-    if index < 0 or index >= len(reviewed["entries"]):
-        return jsonify({"success": False, "error": "Invalid index"}), 400
-    
-    entry = reviewed["entries"][index]
-    original_speaker = entry.get("speaker")
-    original_dialogue = entry.get("dialogue")
-    
-    new_speaker = data.get("speaker")
-    new_dialogue = data.get("dialogue")
-    
-    corrected = (original_speaker != new_speaker) or (original_dialogue != new_dialogue)
-    
-    entry["speaker"] = new_speaker
-    entry["dialogue"] = new_dialogue
-    entry["reviewed"] = True
-    entry["corrected"] = corrected or entry.get("corrected", False)
+    for action in actions:
+        action_type = action.get("type")
+        index = action.get("index")
+        
+        if index < 0 or index >= len(reviewed["entries"]):
+            continue
+        
+        entry = reviewed["entries"][index]
+        
+        if action_type == "approve":
+            entry["reviewed"] = True
+            applied += 1
+        elif action_type == "save":
+            original_speaker = entry.get("speaker")
+            original_dialogue = entry.get("dialogue")
+            new_speaker = action.get("speaker")
+            new_dialogue = action.get("dialogue")
+            corrected = (original_speaker != new_speaker) or (original_dialogue != new_dialogue)
+            entry["speaker"] = new_speaker
+            entry["dialogue"] = new_dialogue
+            entry["reviewed"] = True
+            entry["corrected"] = corrected or entry.get("corrected", False)
+            applied += 1
+        elif action_type == "delete":
+            entry["deleted"] = True
+            entry["reviewed"] = True
+            applied += 1
+        elif action_type == "restore":
+            entry["deleted"] = False
+            applied += 1
     
     save_json(reviewed_path, reviewed)
     update_review_progress(video_id)
     
-    return jsonify({"success": True, "corrected": corrected})
-
-
-@app.route("/video/<video_id>/approve/<int:index>", methods=["POST"])
-def approve_entry(video_id, index):
-    reviewed_path = REVIEWED_DIR / f"{video_id}.json"
-    
-    if not reviewed_path.exists():
-        return jsonify({"success": False, "error": "File not found"}), 404
-    
-    reviewed = load_json(reviewed_path)
-    
-    if index < 0 or index >= len(reviewed["entries"]):
-        return jsonify({"success": False, "error": "Invalid index"}), 400
-    
-    reviewed["entries"][index]["reviewed"] = True
-    save_json(reviewed_path, reviewed)
-    update_review_progress(video_id)
-    
-    return jsonify({"success": True})
-
-
-@app.route("/video/<video_id>/delete/<int:index>", methods=["POST"])
-def delete_entry(video_id, index):
-    reviewed_path = REVIEWED_DIR / f"{video_id}.json"
-    
-    if not reviewed_path.exists():
-        return jsonify({"success": False, "error": "File not found"}), 404
-    
-    reviewed = load_json(reviewed_path)
-    
-    if index < 0 or index >= len(reviewed["entries"]):
-        return jsonify({"success": False, "error": "Invalid index"}), 400
-    
-    reviewed["entries"][index]["deleted"] = True
-    reviewed["entries"][index]["reviewed"] = True
-    save_json(reviewed_path, reviewed)
-    update_review_progress(video_id)
-    
-    return jsonify({"success": True})
-
-
-@app.route("/video/<video_id>/restore/<int:index>", methods=["POST"])
-def restore_entry(video_id, index):
-    reviewed_path = REVIEWED_DIR / f"{video_id}.json"
-    
-    if not reviewed_path.exists():
-        return jsonify({"success": False, "error": "File not found"}), 404
-    
-    reviewed = load_json(reviewed_path)
-    
-    if index < 0 or index >= len(reviewed["entries"]):
-        return jsonify({"success": False, "error": "Invalid index"}), 400
-    
-    reviewed["entries"][index]["deleted"] = False
-    save_json(reviewed_path, reviewed)
-    update_review_progress(video_id)
-    
-    return jsonify({"success": True})
+    return jsonify({"success": True, "applied": applied})
 
 
 @app.route("/frame/<video_id>/<filename>")

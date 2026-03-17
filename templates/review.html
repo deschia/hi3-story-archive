@@ -37,6 +37,31 @@
         .controls { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
         .controls label { color: #888; }
         .controls input[type="range"] { width: 150px; }
+        .action-log { position: fixed; top: 20px; right: 20px; width: 320px; max-height: 60vh; background: #222; border: 1px solid #444; border-radius: 4px; z-index: 1000; display: flex; flex-direction: column; }
+        .action-log-header { padding: 10px; background: #333; border-bottom: 1px solid #444; display: flex; justify-content: space-between; align-items: center; }
+        .action-log-header h3 { margin: 0; font-size: 14px; color: #4af; }
+        .action-log-count { background: #4af; color: #000; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+        .action-log-body { overflow-y: auto; flex: 1; max-height: 400px; }
+        .action-log-empty { padding: 20px; text-align: center; color: #666; }
+        .action-log-item { padding: 8px 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .action-log-item:hover { background: #2a2a2a; }
+        .action-log-item .action-type { font-weight: bold; text-transform: uppercase; font-size: 11px; padding: 2px 6px; border-radius: 3px; }
+        .action-log-item .action-type.approve { background: #4f4; color: #000; }
+        .action-log-item .action-type.save { background: #4af; color: #000; }
+        .action-log-item .action-type.delete { background: #f44; color: #fff; }
+        .action-log-item .action-type.restore { background: #fa4; color: #000; }
+        .action-log-item .action-info { flex: 1; font-size: 12px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .action-log-item .action-undo { background: #666; color: #fff; border: none; padding: 3px 8px; cursor: pointer; font-size: 11px; border-radius: 3px; }
+        .action-log-item .action-undo:hover { background: #888; }
+        .action-log-footer { padding: 10px; background: #333; border-top: 1px solid #444; display: flex; gap: 10px; }
+        .action-log-footer button { flex: 1; padding: 8px; cursor: pointer; border: none; border-radius: 3px; font-weight: bold; }
+        .btn-flush { background: #4f4; color: #000; }
+        .btn-flush:hover { background: #6f6; }
+        .btn-flush:disabled { background: #555; color: #888; cursor: not-allowed; }
+        .btn-clear { background: #f44; color: #fff; }
+        .btn-clear:hover { background: #f66; }
+        .btn-clear:disabled { background: #555; color: #888; cursor: not-allowed; }
+        .entry.pending-action { border-left: 3px solid #fa4; }
     </style>
 </head>
 <body>
@@ -74,6 +99,20 @@
     <div id="loading" class="loading hidden">Loading more entries...</div>
     <div id="load-sentinel" class="load-sentinel"></div>
     
+    <div class="action-log" id="action-log">
+        <div class="action-log-header">
+            <h3>Action Log</h3>
+            <span class="action-log-count" id="action-count">0</span>
+        </div>
+        <div class="action-log-body" id="action-log-body">
+            <div class="action-log-empty">No pending actions</div>
+        </div>
+        <div class="action-log-footer">
+            <button class="btn-flush" id="btn-flush" onclick="flushActions()" disabled>Flush All</button>
+            <button class="btn-clear" id="btn-clear" onclick="clearActions()" disabled>Clear All</button>
+        </div>
+    </div>
+    
     <script>
         const videoId = "{{ video_id }}";
         const BATCH_SIZE = 20;
@@ -86,6 +125,9 @@
         let lowCount = 0;
         let frameSize = 30;
         let minConfidence = 0;
+        
+        let actionLog = [];
+        let actionIdCounter = 0;
 
         function setFrameSize(val) {
             frameSize = parseInt(val);
@@ -99,6 +141,176 @@
             minConfidence = parseInt(val) / 100;
             document.getElementById('confidence-label').textContent = val + '%';
             loadEntries(true);
+        }
+        
+        function addAction(type, index, data = {}) {
+            actionLog = actionLog.filter(a => a.index !== index);
+            
+            const entryEl = document.querySelector(`.entry[data-index="${index}"]`);
+            const frameImg = entryEl ? entryEl.querySelector('.entry-frame img') : null;
+            const frameName = frameImg ? frameImg.alt.replace('Frame ', '') : `#${index}`;
+            
+            const action = {
+                id: ++actionIdCounter,
+                type: type,
+                index: index,
+                frame: frameName,
+                timestamp: Date.now(),
+                ...data
+            };
+            actionLog.push(action);
+            renderActionLog();
+            
+            const entry = entryEl;
+            if (entry) {
+                entry.classList.add('pending-action');
+                if (type === 'approve') {
+                    entry.classList.add('reviewed');
+                    entry.dataset.reviewed = 'true';
+                } else if (type === 'delete') {
+                    entry.classList.add('deleted');
+                    entry.dataset.deleted = 'true';
+                } else if (type === 'restore') {
+                    entry.classList.remove('deleted');
+                    entry.dataset.deleted = 'false';
+                } else if (type === 'save') {
+                    entry.classList.add('reviewed');
+                    entry.dataset.reviewed = 'true';
+                }
+            }
+            updateStats();
+        }
+        
+        function removeAction(actionId) {
+            const action = actionLog.find(a => a.id === actionId);
+            if (!action) return;
+            
+            const entry = document.querySelector(`.entry[data-index="${action.index}"]`);
+            if (entry) {
+                entry.classList.remove('pending-action');
+                if (action.type === 'approve' || action.type === 'save') {
+                    entry.classList.remove('reviewed');
+                    entry.dataset.reviewed = 'false';
+                } else if (action.type === 'delete') {
+                    entry.classList.remove('deleted');
+                    entry.dataset.deleted = 'false';
+                } else if (action.type === 'restore') {
+                    entry.classList.add('deleted');
+                    entry.dataset.deleted = 'true';
+                }
+            }
+            
+            actionLog = actionLog.filter(a => a.id !== actionId);
+            renderActionLog();
+            updateStats();
+        }
+        
+        function renderActionLog() {
+            const body = document.getElementById('action-log-body');
+            const count = document.getElementById('action-count');
+            const btnFlush = document.getElementById('btn-flush');
+            const btnClear = document.getElementById('btn-clear');
+            
+            count.textContent = actionLog.length;
+            btnFlush.disabled = actionLog.length === 0;
+            btnClear.disabled = actionLog.length === 0;
+            
+            body.innerHTML = '';
+            
+            if (actionLog.length === 0) {
+                body.innerHTML = '<div class="action-log-empty">No pending actions</div>';
+                return;
+            }
+            
+            [...actionLog].reverse().forEach(action => {
+                const item = document.createElement('div');
+                item.className = 'action-log-item';
+                item.dataset.actionId = action.id;
+                
+                let info = action.frame;
+                if (action.type === 'save') {
+                    info += ` - ${action.speaker || '(no speaker)'}`;
+                }
+                
+                const typeSpan = document.createElement('span');
+                typeSpan.className = `action-type ${action.type}`;
+                typeSpan.textContent = action.type;
+                
+                const infoSpan = document.createElement('span');
+                infoSpan.className = 'action-info';
+                infoSpan.title = info;
+                infoSpan.textContent = info;
+                
+                const undoBtn = document.createElement('button');
+                undoBtn.className = 'action-undo';
+                undoBtn.textContent = 'Undo';
+                undoBtn.addEventListener('click', () => removeAction(action.id));
+                
+                item.appendChild(typeSpan);
+                item.appendChild(infoSpan);
+                item.appendChild(undoBtn);
+                body.appendChild(item);
+            });
+        }
+        
+        async function flushActions() {
+            if (actionLog.length === 0) return;
+            
+            const btnFlush = document.getElementById('btn-flush');
+            btnFlush.disabled = true;
+            btnFlush.textContent = 'Flushing...';
+            
+            try {
+                const response = await fetch(`/video/${videoId}/flush`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({actions: actionLog})
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    document.querySelectorAll('.entry.pending-action').forEach(el => {
+                        el.classList.remove('pending-action');
+                    });
+                    actionLog = [];
+                    renderActionLog();
+                    updateStats();
+                } else {
+                    alert('Error flushing actions');
+                }
+            } catch (error) {
+                console.error('Error flushing actions:', error);
+                alert('Error flushing actions');
+            } finally {
+                btnFlush.textContent = 'Flush All';
+                btnFlush.disabled = actionLog.length === 0;
+            }
+        }
+        
+        function clearActions() {
+            if (actionLog.length === 0) return;
+            if (!confirm(`Clear ${actionLog.length} pending actions? This will undo all changes.`)) return;
+            
+            actionLog.forEach(action => {
+                const entry = document.querySelector(`.entry[data-index="${action.index}"]`);
+                if (entry) {
+                    entry.classList.remove('pending-action');
+                    if (action.type === 'approve' || action.type === 'save') {
+                        entry.classList.remove('reviewed');
+                        entry.dataset.reviewed = 'false';
+                    } else if (action.type === 'delete') {
+                        entry.classList.remove('deleted');
+                        entry.dataset.deleted = 'false';
+                    } else if (action.type === 'restore') {
+                        entry.classList.add('deleted');
+                        entry.dataset.deleted = 'true';
+                    }
+                }
+            });
+            
+            actionLog = [];
+            renderActionLog();
+            updateStats();
         }
 
         function createEntryElement(entry) {
@@ -206,64 +418,25 @@
             loadEntries(true);
         }
         
-        async function approveEntry(index) {
-            const entry = document.querySelector(`.entry[data-index="${index}"]`);
-            const response = await fetch(`/video/${videoId}/approve/${index}`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'}
-            });
-            
-            if (response.ok) {
-                entry.classList.add('reviewed');
-                entry.dataset.reviewed = 'true';
-                updateStats();
-                focusNext(index);
-            }
+        function approveEntry(index) {
+            addAction('approve', index);
+            focusNext(index);
         }
         
-        async function saveEntry(index) {
+        function saveEntry(index) {
             const entry = document.querySelector(`.entry[data-index="${index}"]`);
             const speaker = entry.querySelector('.speaker-input').value;
             const dialogue = entry.querySelector('.dialogue-input').value;
-            
-            const response = await fetch(`/video/${videoId}/entry/${index}`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({speaker, dialogue})
-            });
-            
-            if (response.ok) {
-                entry.classList.add('reviewed');
-                entry.dataset.reviewed = 'true';
-                updateStats();
-                focusNext(index);
-            }
+            addAction('save', index, {speaker, dialogue});
+            focusNext(index);
         }
         
-        async function deleteEntry(index) {
-            const entry = document.querySelector(`.entry[data-index="${index}"]`);
-            const response = await fetch(`/video/${videoId}/delete/${index}`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'}
-            });
-            
-            if (response.ok) {
-                entry.remove();
-                updateStats();
-            }
+        function deleteEntry(index) {
+            addAction('delete', index);
         }
         
-        async function restoreEntry(index) {
-            const entry = document.querySelector(`.entry[data-index="${index}"]`);
-            const response = await fetch(`/video/${videoId}/restore/${index}`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'}
-            });
-            
-            if (response.ok) {
-                entry.remove();
-                updateStats();
-            }
+        function restoreEntry(index) {
+            addAction('restore', index);
         }
         
         function focusNext(currentIndex) {
