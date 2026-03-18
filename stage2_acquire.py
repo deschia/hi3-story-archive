@@ -34,7 +34,7 @@ def count_frames(video_id):
     frames_dir = FRAMES_DIR / video_id
     if not frames_dir.exists():
         return 0
-    return len(list(frames_dir.glob("frame_*.jpg")))
+    return len(list(frames_dir.glob("frame_*.png")))
 
 
 def get_video_duration(video_url):
@@ -94,6 +94,17 @@ def _handle_interrupt(signum, frame):
     sys.exit(0)
 
 
+def get_video_order():
+    """Get video IDs in urls.txt order."""
+    urls_path = Path(__file__).parent / "urls.txt"
+    if not urls_path.exists():
+        return None
+    with open(urls_path, 'r', encoding='utf-8') as f:
+        urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+    from utils import extract_video_id
+    return [extract_video_id(url) for url in urls if extract_video_id(url)]
+
+
 def run_stage2(video_id=None):
     global _current_video_id, _ffmpeg_process, _stop_monitor
     
@@ -109,8 +120,13 @@ def run_stage2(video_id=None):
     
     stats = {"processed": 0, "skipped": 0, "errors": 0}
     
+    video_order = get_video_order()
+    
     if video_id:
         metadata_files = [METADATA_DIR / f"{video_id}.json"]
+    elif video_order:
+        metadata_files = [METADATA_DIR / f"{vid}.json" for vid in video_order]
+        metadata_files = [f for f in metadata_files if f.exists()]
     else:
         metadata_files = list(METADATA_DIR.glob("*.json"))
     
@@ -165,7 +181,7 @@ def run_stage2(video_id=None):
             "-vf", f"fps={fps},{crop_filter}",
             "-start_number", str(start_frame + 1),
             "-q:v", "2",
-            str(frames_dir / "frame_%05d.jpg")
+            str(frames_dir / "frame_%05d.png")
         ]
         
         logger.info(f"Running ffmpeg for {vid} (starting at frame {start_frame})")

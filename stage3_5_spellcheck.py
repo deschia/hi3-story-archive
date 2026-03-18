@@ -164,14 +164,31 @@ def spellcheck_entry(tool, entry, dictionary, threshold):
         }
 
 
+def get_video_order():
+    """Get video IDs in urls.txt order."""
+    urls_path = Path(__file__).parent / "urls.txt"
+    if not urls_path.exists():
+        return None
+    with open(urls_path, 'r', encoding='utf-8') as f:
+        urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+    from utils import extract_video_id
+    return [extract_video_id(url) for url in urls if extract_video_id(url)]
+
+
 def run_spellcheck(video_id=None):
     config = load_config()
     threshold = config.get("spellcheck_confidence_threshold", 0.85)
     
     SPELLCHECKED_DIR.mkdir(exist_ok=True)
     
+    video_order = get_video_order()
+    
     if video_id:
         video_ids = [video_id]
+    elif video_order:
+        completed = set(get_videos_at_stage("extract", "complete"))
+        video_ids = [v for v in video_order if v in completed]
+        video_ids = [v for v in video_ids if not (SPELLCHECKED_DIR / f"{v}.json").exists()]
     else:
         video_ids = get_videos_at_stage("extract", "complete")
         video_ids = [v for v in video_ids if not (SPELLCHECKED_DIR / f"{v}.json").exists()]

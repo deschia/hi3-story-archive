@@ -26,10 +26,21 @@ def is_similar(text1, text2, threshold):
 
 
 def extract_frame_number(frame_path):
-    match = re.search(r'frame_(\d+)\.jpg$', str(frame_path))
+    match = re.search(r'frame_(\d+)\.png$', str(frame_path))
     if match:
         return int(match.group(1))
     return 0
+
+
+def get_video_order():
+    """Get video IDs in urls.txt order."""
+    urls_path = Path(__file__).parent / "urls.txt"
+    if not urls_path.exists():
+        return None
+    with open(urls_path, 'r', encoding='utf-8') as f:
+        urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+    from utils import extract_video_id
+    return [extract_video_id(url) for url in urls if extract_video_id(url)]
 
 
 def run_stage3(video_id=None):
@@ -39,8 +50,17 @@ def run_stage3(video_id=None):
     
     stats = {"processed": 0, "skipped": 0, "errors": 0}
     
+    video_order = get_video_order()
+    
     if video_id:
         video_ids = [video_id]
+    elif video_order:
+        video_ids = []
+        for vid in video_order:
+            progress = load_progress(vid)
+            if progress and progress["stages"]["acquire"]["status"] == "complete":
+                if progress["stages"]["extract"]["status"] != "complete":
+                    video_ids.append(vid)
     else:
         video_ids = []
         for progress_file in PROGRESS_DIR.glob("*.json"):
@@ -71,7 +91,7 @@ def run_stage3(video_id=None):
         logger.info(f"Extracting text from {vid}")
         update_progress(vid, "extract", {"status": "in_progress"})
         
-        frames = sorted(frames_dir.glob("frame_*.jpg"), key=lambda p: extract_frame_number(p))
+        frames = sorted(frames_dir.glob("frame_*.png"), key=lambda p: extract_frame_number(p))
         entries = []
         previous_text = None
         errors = []
